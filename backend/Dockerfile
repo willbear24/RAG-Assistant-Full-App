@@ -6,6 +6,7 @@ WORKDIR /app
 # Install system dependencies needed by some Python packages
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
+    curl \
     && rm -rf /var/lib/apt/lists/*  # Clean up to reduce image size
 
 # Copy and install Python dependencies first (caching)

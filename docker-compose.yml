@@ -1,54 +1,67 @@
-version: "3.8"
+# version not necessary, depricated.
 
+# Startup order: ollama -> ollama-model -> backend -> frontend
 services:
+  # FastAPI RAG backend: retrieves chunks from ChromaDB and asks Ollama for an answer
   backend:
-    build: ./backend
+    build: ./backend # Build the image from backend/Dockerfile
     ports:
-      - "8000:8000"
+      - "8000:8000" # host:container, so the API is reachable at localhost:8000
     env_file:
-      - .env
+      - .env # Load settings (OLLAMA_URL, CHROMA_PATH, etc.) into the container
     depends_on:
       ollama-model:
+        # Wait until the model download has finished (exited with code 0)
         condition: service_completed_successfully
     volumes:
+      # Persist the ChromaDB data across restarts; uses CHROMA_PATH from .env,
+      # falling back to /app/chroma_data if it isn't set
       - chroma_data:${CHROMA_PATH:-/app/chroma_data}
     healthcheck:
+      # Mark the container healthy only if /health responds successfully
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 30s
+      interval: 30s # Check every 30 seconds
+      timeout: 10s # A check taking longer than this counts as failed
+      retries: 3 # Unhealthy after 3 failures in a row
+      start_period: 30s # Grace period at startup before failures are counted
 
+  # Streamlit chat UI
   frontend:
-    build: ./frontend
+    build: ./frontend # Build the image from frontend/Dockerfile
     ports:
-      - "8501:8501"
+      - "8501:8501" # UI available at localhost:8501
     environment:
+      # Inside the Compose network, services reach each other by service name
       - API_URL=http://backend:8000
     depends_on:
-      - backend
+      backend:
+        condition: service_healthy # Start only once /health succeeds
 
+  # Ollama server that runs the LLM
   ollama:
-    image: ollama/ollama
+    image: ollama/ollama # Pull the prebuilt image from Docker Hub
     ports:
-      - "11434:11434"
+      - "11434:11434" # Expose the Ollama API on the host
     volumes:
+      # Persist downloaded models so they aren't re-downloaded on every start
       - ollama_data:/root/.ollama
     healthcheck: # Persistent health check to ensure Ollama is running every 30 seconds
-      test: ["CMD", "ollama", "list"]
+      test: ["CMD", "ollama", "list"] # Succeeds once the server responds
       interval: 30s
       timeout: 3s
-      retries: 30
+      retries: 10
 
+  # One-off job: downloads the model into the shared Ollama volume, then exits
   ollama-model: 
     image: ollama/ollama
     depends_on: # Ollama must be healthy
       ollama:
-        condition: service_healthy
+        condition: service_healthy # Don't pull until the server is ready
     environment: 
-      OLLAMA_HOST: http://ollama:11434
+      OLLAMA_HOST: http://ollama:11434 # Make the CLI talk to the ollama service, not localhost
     command: ["pull", "llama3.2:1b"] # Install the necessary model
 
+# Named volumes managed by Docker; they survive `docker compose down` (not `down -v`)
 volumes:
   chroma_data:
   ollama_data:
