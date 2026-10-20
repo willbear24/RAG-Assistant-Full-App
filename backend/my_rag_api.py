@@ -95,10 +95,25 @@ def generate(messages):
                 "stream": False,
                 "options": {"temperature": 0},
             },
+            timeout=settings.OLLAMA_TIMEOUT,
         )
-        return r.json()["message"]["content"]
+        r.raise_for_status()
+        content = r.json()["message"]["content"]
     except requests.exceptions.ConnectionError:
         raise HTTPException(503, "Ollama is not running")
+    except requests.exceptions.Timeout:
+        raise HTTPException(504, "Ollama timed out. Please try again.")
+    except requests.exceptions.HTTPError as e:
+        status = e.response.status_code if e.response is not None else "unknown"
+        raise HTTPException(502, f"Ollama returned an error (HTTP {status})")
+    except (ValueError, KeyError, TypeError):
+        raise HTTPException(502, "Ollama returned an unexpected response")
+    except requests.exceptions.RequestException:
+        raise HTTPException(502, "Ollama request failed")
+
+    if not isinstance(content, str) or not content.strip():
+        raise HTTPException(502, "Ollama returned an empty response")
+    return content
 
 
 # --- Endpoints ---

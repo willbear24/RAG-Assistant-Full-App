@@ -4,6 +4,8 @@ import requests
 import streamlit as st
 
 API_URL = os.environ.get("API_URL", "http://localhost:8000")
+# Longer than the backend's Ollama timeout so the API's own error reaches the user
+ASK_TIMEOUT = float(os.environ.get("ASK_TIMEOUT", "150"))
 
 st.set_page_config(page_title="RAG API Assistant", page_icon="🤖", layout="wide")
 
@@ -20,7 +22,7 @@ with st.sidebar:
 
     if st.button("🔄 Re-index Documents"):
         try:
-            r = requests.post(f"{API_URL}/ingest")
+            r = requests.post(f"{API_URL}/ingest", timeout=60)
             r.raise_for_status()
             st.success(r.json().get("message", "Done"))
         except requests.RequestException:
@@ -49,8 +51,18 @@ if prompt := st.chat_input("Ask a question about your documents..."):
 
     with st.chat_message("assistant"), st.spinner("Thinking..."):
         try:
-            r = requests.post(f"{API_URL}/ask", json={"question": prompt})
+            r = requests.post(
+                f"{API_URL}/ask", json={"question": prompt}, timeout=ASK_TIMEOUT
+            )
             data = r.json()
+            if not r.ok:
+                detail = (
+                    data.get("detail", "Unknown error")
+                    if isinstance(data, dict)
+                    else r.text
+                )
+                st.error(f"Error: {detail}")
+                st.stop()
             st.write(data["answer"])
 
             sources = data.get("sources", [])
@@ -65,6 +77,12 @@ if prompt := st.chat_input("Ask a question about your documents..."):
             st.session_state["messages"].append(
                 {"role": "assistant", "content": data["answer"], "sources": sources}
             )
+        except requests.Timeout:
+            st.error(
+                "The request timed out. The model may still be loading; please try again."
+            )
+        except requests.ConnectionError:
+            st.error("Could not reach the API. Is the backend running?")
         except (
             requests.RequestException,
             ValueError,

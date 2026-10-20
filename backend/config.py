@@ -7,6 +7,7 @@ class Settings:
     # Ollama configuration
     OLLAMA_URL: str = os.environ.get("OLLAMA_URL", "http://localhost:11434")
     MODEL_NAME: str = os.environ.get("MODEL_NAME", "llama3.2:1b")
+    OLLAMA_TIMEOUT: float = float(os.environ.get("OLLAMA_TIMEOUT", "120"))
 
     # ChromaDB configuration
     CHROMA_PATH: str = os.environ.get("CHROMA_PATH", "./chroma_data")

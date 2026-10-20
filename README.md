@@ -2,6 +2,25 @@
 
 A question answering app for a small set of course notes. You ask a question in a Streamlit page, the FastAPI backend finds the most relevant passages in ChromaDB, and a local Ollama model writes an answer from those passages. Everything runs in Docker Compose, so nothing is sent to an outside service.
 
+## Architecture
+
+```mermaid
+flowchart LR
+    User([User]) -->|browser| FE["frontend<br/>Streamlit :8501"]
+    FE -->|"POST /ask, /ingest<br/>GET /health"| BE["backend<br/>FastAPI :8000"]
+    BE -->|"1. retrieve closest chunks"| DB[("ChromaDB<br/>volume: chroma_data")]
+    BE -->|"2. POST /api/chat<br/>question + chunks"| OL["ollama<br/>:11434"]
+    OL --- OV[("volume: ollama_data<br/>llama3.2:1b")]
+    OM["ollama-model<br/>one-off pull"] -.->|downloads model| OV
+    DOCS["backend/docs/<br/>.txt and .md"] -->|"/ingest: split into paragraphs"| DB
+```
+
+**Request flow for `/ask`:** the frontend sends the question to the backend, which looks up the closest chunks in ChromaDB. If any are close enough, the backend sends them with the question to Ollama and returns the answer with its sources. Otherwise it answers directly without calling Ollama.
+
+**Startup order:** `ollama` (healthy) → `ollama-model` (exits after the pull) → `backend` (healthy) → `frontend`.
+
+**Failures from Ollama** are returned by the backend as clear errors: 503 if Ollama is not running, 504 on a timeout, and 502 for an error status or an unusable response. The frontend shows the message.
+
 ## How it works
 
 1. On ingest, each `.txt` and `.md` file in `backend/docs/` is split into paragraphs. Each paragraph is stored in ChromaDB as one chunk.
@@ -44,7 +63,8 @@ These are set in `.env` and read in `backend/config.py`.
 |---|---|---|
 | `OLLAMA_URL` | `http://localhost:11434` | Where the backend reaches Ollama. Compose uses `http://ollama:11434`. |
 | `MODEL_NAME` | `llama3.2:1b` | Ollama model used for answers |
-| `CHROMA_PATH` | `./chroma_data` | Where ChromaDB stores its data |
+| `OLLAMA_TIMEOUT` | `120` | Seconds to wait for Ollama before returning a 504 |
+| `CHROMA_PATH` | `./chroma_data` | Where ChromaDB stores its data. Compose sets it to `/app/chroma_data`, the mounted volume. |
 | `COLLECTION_NAME` | `documents_cosine` | ChromaDB collection name |
 | `MAX_RESULTS` | `3` | Chunks retrieved per question |
 | `MAX_DISTANCE` | `0.9` | Chunks farther than this are discarded |
@@ -53,7 +73,7 @@ These are set in `.env` and read in `backend/config.py`.
 | `DOCS_DIRECTORY` | `./docs` | Folder of documents to ingest |
 | `DEBUG` | `false` | Print the settings on startup |
 
-The frontend reads one variable, `API_URL`, which defaults to `http://localhost:8000`. Compose sets it to `http://backend:8000`.
+The frontend reads `API_URL`, which defaults to `http://localhost:8000`. Compose sets it to `http://backend:8000`. It also reads an optional `ASK_TIMEOUT` (default `150` seconds), which should stay above `OLLAMA_TIMEOUT`.
 
 ## API
 
