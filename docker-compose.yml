@@ -13,10 +13,12 @@ services:
       ollama-model:
         # Wait until the model download has finished (exited with code 0)
         condition: service_completed_successfully
+    environment:
+      # Overrides the relative CHROMA_PATH in .env so the app writes to the mounted volume
+      CHROMA_PATH: /app/chroma_data
     volumes:
-      # Persist the ChromaDB data across restarts; uses CHROMA_PATH from .env,
-      # falling back to /app/chroma_data if it isn't set
-      - chroma_data:${CHROMA_PATH:-/app/chroma_data}
+      # Persist the ChromaDB data across restarts (absolute container path required)
+      - chroma_data:/app/chroma_data
     healthcheck:
       # Mark the container healthy only if /health responds successfully
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
